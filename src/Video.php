@@ -7,7 +7,7 @@ EXAMPLE: $video = Video::play('');
 
 class Video
 {
-  const VIDEO_PATH = '/../files/videos/calls/';
+  const VIDEO_PATH = '/videos/';
   const BUFFER     = 102400; // 100 kb
 
   public $state = null;
