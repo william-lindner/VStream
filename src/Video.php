@@ -19,44 +19,40 @@ class Video
   public $streamBlocks = null;
   public $lastModified = null;
 
-  final private function __construct()
+  final function __construct($fileName = null)
   {
-    // no instantiation directly - must fetch file
+    $this->fetch($fileName);
   }
 
-  public static function fetch($fileName = null, $relativePath = true) {
+  public function fetch($fileName = null) {
     // check the filename integrity
     if (!$fileName || !is_string($fileName)) {
       throw new Exception('No file name provided.');
     }
     // set the path to the video and open it in read only state (binary)
     $filePath = $_SERVER['DOCUMENT_ROOT'] . self::VIDEO_PATH . $fileName;
-    $instance = new self;
-    if (!$instance->video = fopen($filePath, 'rb')) {
-      throw new Exception('Could not open video file for reading.');
-    }
+    $this->video = fopen($filePath, 'rb') or die ('Could not open video file for reading.');
     
     // setup information about the file and return the instance
-    $fileSize = $instance->fileSize = filesize($filePath);
-    $instance->lastModified = filemtime($filePath);
-    $instance->streamBlocks = ceil($fileSize / self::BUFFER);
-
-    return $instance;
+    $fileSize = $this->fileSize = filesize($filePath);
+    $this->lastModified = filemtime($filePath);
+    $this->streamBlocks = ceil($fileSize / self::BUFFER * 2 + 1);
 
   }
-
   /*
   * Start streaming video content
   */
-  public function play()
+  public function play($type = 'video/mp4')
   {
     // flush everything if possible and setup the basic headers
     ob_get_clean();
-    header("Content-Type: video/mp4"); // modify for other video types later
+    $test = fopen('test.txt','a');
+    header("Content-Type: " . $type); // modify for other video types later
     header("Cache-Control: no-cache, must-revalidate");
     header("Expires: 0");
     header("Last-Modified: " . gmdate('D, d M Y H:i:s', $this->lastModified) . ' GMT');
 
+    fwrite($test,"Expected requests: " . $this->streamBlocks . "\n");
     $streamStartPoint  = 0;
     $streamEndPoint    = $this->fileSize - 1;
 
@@ -64,12 +60,10 @@ class Video
     header("Accept-Ranges: 0-" . $streamEndPoint);
 
     if (isset($_SERVER['HTTP_RANGE'])) {
-      $test = fopen('test.txt','a');
       $currentStreamStart = $streamStartPoint;
       $currentStreamEnd   = $streamEndPoint;
   
       list(, $range) = explode('=', $_SERVER['HTTP_RANGE'], 2);
-      fwrite($test,$range);
       if (strpos($range, ',') !== false) {
         header('HTTP/1.1 416 Requested Range Not Satisfiable');
         header("Content-Range: bytes " . $streamStartPoint . "-" . $streamEndPoint. "/" . $this->fileSize);
@@ -98,12 +92,14 @@ class Video
       header("Content-Range: bytes " . $streamStartPoint . "-" . $streamEndPoint. "/" . $this->fileSize);
       } else {
         header("Content-Length: " . $this->fileSize);
-
       }
   
       $i = $streamStartPoint;
+      $c = 0;
       set_time_limit(0);
       while (!feof($this->video) && $i <= $streamEndPoint) {
+        
+        fwrite($test, $c . "\n");
         $bytesToRead = self::BUFFER;
         if (($i + $bytesToRead) > $streamEndPoint) {
           $bytesToRead = $streamEndPoint - $i + 1;
@@ -112,8 +108,10 @@ class Video
         echo $data;
         flush();
         $i += $bytesToRead;
+        $c++;
       }
   
       fclose($this->video);
+      fclose($test);
  }
 }
