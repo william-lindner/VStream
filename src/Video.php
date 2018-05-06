@@ -1,7 +1,40 @@
 <?php
 /*
 
-EXAMPLE: $video = Video::play('');
+@Name: Stream Video Class
+@Author: William Lindner
+@Version: 1.0
+@License: MIT
+
+https://github.com/william-lindner/video-player
+
+Copyright (c) 2018 william-lindner
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-----------------------------------------------------
+
+EXAMPLE: 
+
+$video = new Video();
+$video->fetch('filename.mp4');
+$video->play();
 
  */
 
@@ -21,7 +54,9 @@ class Video
 
   final function __construct($fileName = null)
   {
-    $this->fetch($fileName);
+    if($fileName) {
+      $this->fetch($fileName);
+    }
   }
 
   public function fetch($fileName = null) {
@@ -36,8 +71,7 @@ class Video
     // setup information about the file and return the instance
     $fileSize = $this->fileSize = filesize($filePath);
     $this->lastModified = filemtime($filePath);
-    $this->streamBlocks = ceil($fileSize / self::BUFFER * 2 + 1);
-
+    $this->streamBlocks = ceil($fileSize / self::BUFFER * 2 + 4);
   }
   /*
   * Start streaming video content
@@ -46,13 +80,12 @@ class Video
   {
     // flush everything if possible and setup the basic headers
     ob_get_clean();
-    $test = fopen('test.txt','a');
-    header("Content-Type: " . $type); // modify for other video types later
-    header("Cache-Control: no-cache, must-revalidate");
+
+    header('Content-Type: ' . $type);
+    header('Cache-Control: no-cache, must-revalidate');
     header("Expires: 0");
     header("Last-Modified: " . gmdate('D, d M Y H:i:s', $this->lastModified) . ' GMT');
 
-    fwrite($test,"Expected requests: " . $this->streamBlocks . "\n");
     $streamStartPoint  = 0;
     $streamEndPoint    = $this->fileSize - 1;
 
@@ -74,15 +107,17 @@ class Video
       } else {
         $range   = explode('-', $range);
         $currentStreamStart = $range[0];
-  
         $currentStreamEnd = (isset($range[1]) && is_numeric($range[1])) ? $range[1] : $currentStreamEnd;
       }
+
       $currentStreamEnd = ($currentStreamEnd > $streamEndPoint) ? $streamEndPoint: $currentStreamEnd;
+
       if ($currentStreamStart > $currentStreamEnd || $currentStreamStart > $this->fileSize - 1 || $currentStreamEnd >= $this->fileSize) {
         header('HTTP/1.1 416 Requested Range Not Satisfiable');
         header("Content-Range: bytes " . $streamStartPoint . "-" . $streamEndPoint. "/" . $this->fileSize);
         exit;
       }
+
       $streamStartPoint = $currentStreamStart;
       $streamEndPoint  = $currentStreamEnd;
       $length      = $streamEndPoint- $streamStartPoint + 1;
@@ -94,24 +129,20 @@ class Video
         header("Content-Length: " . $this->fileSize);
       }
   
-      $i = $streamStartPoint;
-      $c = 0;
-      set_time_limit(0);
-      while (!feof($this->video) && $i <= $streamEndPoint) {
-        
-        fwrite($test, $c . "\n");
-        $bytesToRead = self::BUFFER;
-        if (($i + $bytesToRead) > $streamEndPoint) {
-          $bytesToRead = $streamEndPoint - $i + 1;
-        }
-        $data = fread($this->video, $bytesToRead);
-        echo $data;
-        flush();
-        $i += $bytesToRead;
-        $c++;
+    $endPointer = $streamStartPoint;
+    set_time_limit(0);
+
+    while (!feof($this->video) && $endPointer <= $streamEndPoint) {
+      $bytesToRead = self::BUFFER;
+      if (($endPointer + $bytesToRead) > $streamEndPoint) {
+        $bytesToRead = $streamEndPoint - $endPointer + 1;
       }
-  
-      fclose($this->video);
-      fclose($test);
+      $data = fread($this->video, $bytesToRead);
+      echo $data;
+      flush();
+      $endPointer += $bytesToRead;
+    }
+
+    fclose($this->video);
  }
 }
