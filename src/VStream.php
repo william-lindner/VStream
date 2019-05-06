@@ -2,7 +2,7 @@
 
 namespace Veediots;
 
-class Video
+class VStream
 {
     const DEFAULT_BUFFER    = 102400; // 100 kb
     protected $streamBuffer = self::DEFAULT_BUFFER;
