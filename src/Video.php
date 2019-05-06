@@ -1,149 +1,150 @@
 <?php
-/*
 
-@Name: Stream Video Class
-@Author: William Lindner
-@Version: 1.0
-@License: MIT
-
-https://github.com/william-lindner/video-player
-
-Copyright (c) 2018 william-lindner
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
------------------------------------------------------
-
-EXAMPLE:
-
-$video = new Video();
-$video->fetch('filename.mp4');
-$video->play();
-
- */
+namespace Veediots;
 
 class Video
 {
-  const VIDEO_PATH = '/videos/';
-  const BUFFER     = 102400; // 100 kb
+    const DEFAULT_BUFFER    = 102400; // 100 kb
+    protected $streamBuffer = self::DEFAULT_BUFFER;
+    private $video;
+    private $type;
+    private $fileSize;
+    private $lastModified;
+    private $streamStart;
+    private $streamEnd;
 
-  public $state = null;
-  public $error = null;
-
-  private $__video;
-
-  public $fileSize     = null;
-  public $streamBlocks = null;
-  public $lastModified = null;
-
-  final public function __construct($fileName = null)
-  {
-    if ($fileName) {
-      $this->fetch($fileName);
+    /**
+     * Requires a video file you are looking to stream. Opens the video file upon construction.
+     *
+     * @return static
+     */
+    public function __construct(string $videoFile, string $type = 'video/mp4')
+    {
+        if (!$this->open($videoFile)) {
+            throw new \Exception('Video file not found', 404);
+        }
+        $this->type         = $type;
+        $this->fileSize     = filesize($videoFile);
+        $this->lastModified = filemtime($videoFile);
+        $this->streamStart  = 0;
+        $this->streamEnd    = $this->fileSize - 1;
     }
-  }
 
-  public function fetch($fileName = null)
-  {
-    // check the filename integrity
-    if (!$fileName || !is_string($fileName)) {
-      throw new Exception('No file name provided.');
+    /**
+     * Sets the chunk size of the stream buffer
+     *
+     * @return void
+     */
+    public function setStreamBuffer(int $buffer)
+    {
+        $this->streamBuffer = $buffer;
     }
-    // set the path to the video and open it in read only state (binary)
-    $filePath    = $_SERVER['DOCUMENT_ROOT'] . self::VIDEO_PATH . $fileName;
-    $this->video = fopen($filePath, 'rb') or die('Could not open video file for reading.');
 
-    // setup information about the file and return the instance
-    $fileSize           = $this->fileSize           = filesize($filePath);
-    $this->lastModified = filemtime($filePath);
-    $this->streamBlocks = ceil($fileSize / self::BUFFER * 2 + 4);
-  }
-  /*
-   * Start streaming video content
-   */
-  public function play($type = 'video/mp4')
-  {
-    // flush everything if possible and setup the basic headers
-    ob_get_clean();
+    /**
+     * Opens the video file at the path provided.
+     *
+     * @return void
+     */
+    protected function open(string $videoFile)
+    {
+        $this->video = @fopen($videoFile, 'rb');
+        return is_resource($this->video);
+    }
 
-    header('Content-Type: ' . $type);
-    header('Cache-Control: no-cache, must-revalidate');
-    header("Expires: 0");
-    header("Last-Modified: " . gmdate('D, d M Y H:i:s', $this->lastModified) . ' GMT');
+    /**
+     * Plays the stream, designating the mime type
+     *
+     * @return void
+     */
+    public function play()
+    {
+        ob_clean();
+        $this->_setHeaders();
+        $this->_showVideo();
+    }
 
-    $streamStartPoint = 0;
-    $streamEndPoint   = $this->fileSize - 1;
+    /**
+     * Sets the base headers to the type specified.
+     *
+     * @return void
+     */
+    private function _setHeaders()
+    {
+        header('Content-Type: ' . $this->type);
+        header('Cache-Control: no-cache, must-revalidate');
+        header("Expires: 0");
+        header("Last-Modified: " . gmdate('D, d M Y H:i:s', $this->lastModified) . ' GMT');
+        header("Accept-Ranges: 0-" . $this->streamEnd);
+        $this->_setHeaderLength();
+    }
 
-    // set the range in the header
-    header("Accept-Ranges: 0-" . $streamEndPoint);
+    /**
+     * Sets the headers for the stream range based on chunk size
+     *
+     * @return void
+     */
+    private function _setHeaderLength()
+    {
+        if (!isset($_SERVER['HTTP_RANGE'])) {
+            header("Content-Length: " . $this->fileSize);
+            return;
+        }
+        $currentStreamStart = $this->streamStart;
+        $currentStreamEnd   = $this->streamEnd;
+        list(, $range)      = explode('=', $_SERVER['HTTP_RANGE'], 2);
+        if (strpos($range, ',') !== false) {
+            $this->_rangeNotSatisfiable();
+        }
+        if ($range === '-') {
+            $currentStreamStart = $this->fileSize - substr($range, 1);
+        } else {
+            $range              = explode('-', $range);
+            $currentStreamStart = $range[0];
+            $currentStreamEnd   = (isset($range[1]) && is_numeric($range[1])) ? $range[1] : $currentStreamEnd;
+        }
+        $currentStreamEnd = ($currentStreamEnd > $this->streamEnd) ? $this->streamEnd : $currentStreamEnd;
+        if ($currentStreamStart > $currentStreamEnd || $currentStreamStart > $this->fileSize - 1 || $currentStreamEnd >= $this->fileSize) {
+            $this->_rangeNotSatisfiable();
+        }
+        $this->streamStart = $currentStreamStart;
+        $this->streamEnd   = $currentStreamEnd;
+        fseek($this->video, $this->streamStart);
+        header('HTTP/1.1 206 Partial Content');
+        header("Content-Length: " . ($this->streamEnd - $this->streamStart + 1));
+        header("Content-Range: bytes " . $this->streamStart . "-" . $this->streamEnd . "/" . $this->fileSize);
+    }
 
-    if (isset($_SERVER['HTTP_RANGE'])) {
-      $currentStreamStart = $streamStartPoint;
-      $currentStreamEnd   = $streamEndPoint;
+    /**
+     * Reads the file, ultimately performing the stream.
+     *
+     * @return void
+     */
+    private function _showVideo()
+    {
+        $endPointer = $this->streamStart;
+        set_time_limit(0);
+        while (!feof($this->video) && $endPointer <= $this->streamEnd) {
+            $bytesToRead = $this->streamBuffer;
+            // ensures you never go over the filesize
+            if (($endPointer + $bytesToRead) > $this->streamEnd) {
+                $bytesToRead = $this->streamEnd - $endPointer + 1;
+            }
+            echo fread($this->video, $bytesToRead);
+            flush();
+            $endPointer += $bytesToRead;
+        }
+        fclose($this->video);
+    }
 
-      list(, $range) = explode('=', $_SERVER['HTTP_RANGE'], 2);
-      if (strpos($range, ',') !== false) {
+    /**
+     * Exits the stream with header indicating the range not satisfiable
+     *
+     * @return void
+     */
+    private function _rangeNotSatisfiable()
+    {
         header('HTTP/1.1 416 Requested Range Not Satisfiable');
-        header("Content-Range: bytes " . $streamStartPoint . "-" . $streamEndPoint . "/" . $this->fileSize);
+        header("Content-Range: bytes " . $this->streamStart . "-" . $this->streamEnd . "/" . $this->fileSize);
         exit;
-      }
-      if ($range == '-') {
-        $currentStreamStart = $this->fileSize - substr($range, 1);
-      } else {
-        $range              = explode('-', $range);
-        $currentStreamStart = $range[0];
-        $currentStreamEnd   = (isset($range[1]) && is_numeric($range[1])) ? $range[1] : $currentStreamEnd;
-      }
-
-      $currentStreamEnd = ($currentStreamEnd > $streamEndPoint) ? $streamEndPoint : $currentStreamEnd;
-
-      if ($currentStreamStart > $currentStreamEnd || $currentStreamStart > $this->fileSize - 1 || $currentStreamEnd >= $this->fileSize) {
-        header('HTTP/1.1 416 Requested Range Not Satisfiable');
-        header("Content-Range: bytes " . $streamStartPoint . "-" . $streamEndPoint . "/" . $this->fileSize);
-        exit;
-      }
-
-      $streamStartPoint = $currentStreamStart;
-      $streamEndPoint   = $currentStreamEnd;
-      $length           = $streamEndPoint - $streamStartPoint + 1;
-      fseek($this->video, $streamStartPoint);
-      header('HTTP/1.1 206 Partial Content');
-      header("Content-Length: " . $length);
-      header("Content-Range: bytes " . $streamStartPoint . "-" . $streamEndPoint . "/" . $this->fileSize);
-    } else {
-      header("Content-Length: " . $this->fileSize);
     }
-
-    $endPointer = $streamStartPoint;
-    set_time_limit(0);
-
-    while (!feof($this->video) && $endPointer <= $streamEndPoint) {
-      $bytesToRead = self::BUFFER;
-      if (($endPointer + $bytesToRead) > $streamEndPoint) {
-        $bytesToRead = $streamEndPoint - $endPointer + 1;
-      }
-      $data = fread($this->video, $bytesToRead);
-      echo $data;
-      flush();
-      $endPointer += $bytesToRead;
-    }
-
-    fclose($this->video);
-  }
 }
