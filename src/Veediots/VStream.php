@@ -148,13 +148,13 @@ class VStream
 
         // Base configuration
         header('Cache-Control: no-cache, must-revalidate');
-        header("Expires: 0");
+        header('Expires: 0');
 
         if($this->lastModified !== false) {
-            header("Last-Modified: " . gmdate('D, d M Y H:i:s', $this->lastModified) . ' GMT');
+            header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $this->lastModified) . ' GMT');
         }
 
-        header("Accept-Ranges: 0-" . $this->streamEnd);
+        header('Accept-Ranges: 0-' . $this->streamEnd);
 
         $this->setHeaderLength();
 
@@ -169,11 +169,11 @@ class VStream
     private function setHeaderLength() : void
     {
         if (! isset($_SERVER['HTTP_RANGE'])) {
-            header("Content-Length: " . $this->fileSize);
+            header('Content-Length: ' . $this->fileSize);
             return;
         }
 
-        [, $range]      = explode('=', $_SERVER['HTTP_RANGE'], 2);
+        [, $range] = explode('=', $_SERVER['HTTP_RANGE'], 2);
 
         if (strpos($range, ',') !== false) {
             $this->rangeNotSatisfiable();
@@ -183,9 +183,10 @@ class VStream
             $currentStreamStart = $this->fileSize - substr($range, 1);
             $currentStreamEnd   = $this->streamEnd;
         } else {
-            $range              = explode('-', $range);
-            $currentStreamStart = $range[0];
-            $currentStreamEnd   = (isset($range[1]) && is_numeric($range[1])) ? $range[1] : $this->streamEnd;
+            [$streamStart, $streamEnd]  = explode('-', $range);
+
+            $currentStreamStart = $streamStart ?? 0;
+            $currentStreamEnd   = isset($streamEnd) && is_numeric($streamEnd) ? $streamEnd : $this->streamEnd;
         }
 
         $currentStreamEnd = ($currentStreamEnd > $this->streamEnd) ? $this->streamEnd : $currentStreamEnd;
@@ -202,8 +203,8 @@ class VStream
 
         fseek($this->video, $this->streamStart);
         header('HTTP/1.1 206 Partial Content');
-        header("Content-Length: " . ($this->streamEnd - $this->streamStart + 1));
-        header("Content-Range: bytes " . $this->streamStart . "-" . $this->streamEnd . "/" . $this->fileSize);
+        header('Content-Length: ' . ($this->streamEnd - $this->streamStart + 1));
+        header('Content-Range: bytes ' . $this->streamStart . '-' . $this->streamEnd . '/' . $this->fileSize);
     }
 
     /**
@@ -211,7 +212,7 @@ class VStream
      *
      * @return void
      */
-    private function showVideo()
+    private function showVideo() : void
     {
         $endPointer = $this->streamStart;
 
@@ -223,10 +224,13 @@ class VStream
             if (($endPointer + $bytesToRead) > $this->streamEnd) {
                 $bytesToRead = $this->streamEnd - $endPointer + 1;
             }
+
             echo fread($this->video, $bytesToRead);
             flush();
+
             $endPointer += $bytesToRead;
         }
+
         fclose($this->video);
     }
 
