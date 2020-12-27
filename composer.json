@@ -1,0 +1,13 @@
+{
+    "name": "wlindner/vstream.php",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "William Lindner"
+        }
+    ],
+    "require": {},
+    "autoload": {
+        "psr-4": {"Veediots\\": "src/Veediots"}
+    }
+}

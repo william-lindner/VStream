@@ -1,9 +1,7 @@
 <?php
 
-namespace Veediots;
+use Veediots\VStream;
 
-require_once $_SERVER['DOCUMENT_ROOT'] . '/src/Video.php';
+require __DIR__ . '/vendor/autoload.php';
 
-$video = new VStream(__DIR__ . '/videos/another_sample.mp4');
-
-$video->play();
+(new VStream(__DIR__ . '/videos/another_sample.mp4'))->play();
